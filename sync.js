@@ -77,14 +77,14 @@ var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwd6v93YS7ko3Gc-lK7Hi
     var url = WEB_APP_URL + '?action=' + action + '&origin=' + encodeURIComponent(window.location.origin);
 
     if (action === 'write') {
+      // ⚠️ 用 text/plain 避免 CORS 预检请求（GAS 不支持 OPTIONS 预检）
       return fetch(url, {
         method: 'POST',
-        mode: 'cors',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(params)
       }).then(function (res) { return res.json(); });
     } else {
-      return fetch(url, { method: 'GET', mode: 'cors' })
+      return fetch(url, { method: 'GET' })
         .then(function (res) { return res.json(); });
     }
   }
