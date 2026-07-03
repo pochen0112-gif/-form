@@ -1,11 +1,16 @@
 /**
  * ============================================
- * sync.js - 四川作战系统 数据同步脚本（全量版）
+ * sync.js - 四川作战系统 数据同步脚本（全量版 v3）
  * 注入到 index.html 中，自动同步所有 localStorage 数据到 Google Sheets
  * ============================================
  *
  * 使用方式：在 index.html 的 </body> 前加一行：
  *   <script src="sync.js"></script>
+ *
+ * 工作原理：
+ *   1. 首次打开页面 → 从云端拉数据 → 写入 localStorage → 刷新页面
+ *   2. 刷新后 → React 读取到最新数据正常渲染 → 开始监听本地变化自动上传
+ *   3. 手动点「同步」按钮 → 拉取云端 → 刷新页面
  */
 
 // ==================== ⚠️ 必须配置 ====================
@@ -18,44 +23,41 @@ var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwd6v93YS7ko3Gc-lK7Hi
 (function () {
   'use strict';
 
-  // 防止重复加载
   if (window.__syncJsLoaded) return;
   window.__syncJsLoaded = true;
 
   var logPrefix = '[数据同步]';
   var syncTimer = null;
-  var DEBOUNCE_MS = 500; // 500ms 防抖，减少频繁请求
-  var SYNC_RECORD_KEY = '_full_snapshot'; // 云端存储用的记录 key
-
-  // ---- 工具 ----
+  var DEBOUNCE_MS = 800;
+  var SYNC_RECORD_KEY = '_full_snapshot';
+  var RELOAD_FLAG = '_sync_just_pulled'; // 标记：刚从云端拉取过，需要跳过本次拉取
+  var isRestoring = false; // 正在恢复数据时，不触发上传
 
   function log(msg) { console.log(logPrefix, msg); }
   function warn(msg) { console.warn(logPrefix, msg); }
 
-  // 获取所有 localStorage 数据的快照（排除浏览器自身/扩展的 key）
+  // ---- 快照工具 ----
+
   function getSnapshot() {
     var snapshot = {};
     for (var i = 0; i < localStorage.length; i++) {
       var key = localStorage.key(i);
       if (!key) continue;
-      // 跳过浏览器扩展和框架自带的 key
-      if (key.indexOf('__') === 0) continue;  // 跳过 __ 开头的
+      if (key.indexOf('__') === 0) continue;
       if (key === 'debug' || key === 'loglevel') continue;
+      if (key === RELOAD_FLAG) continue;
       try {
         var val = localStorage.getItem(key);
-        // 尝试解析 JSON
         try { snapshot[key] = JSON.parse(val); }
         catch (e) { snapshot[key] = val; }
-      } catch (e) {
-        warn('读取 ' + key + ' 失败: ' + e.message);
-      }
+      } catch (e) {}
     }
     return snapshot;
   }
 
-  // 把云端快照写回 localStorage
   function restoreSnapshot(snapshot) {
     if (!snapshot || typeof snapshot !== 'object') return 0;
+    isRestoring = true; // 暂停自动上传
     var count = 0;
     for (var key in snapshot) {
       if (!snapshot.hasOwnProperty(key)) continue;
@@ -68,16 +70,16 @@ var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwd6v93YS7ko3Gc-lK7Hi
         warn('恢复 ' + key + ' 失败: ' + e.message);
       }
     }
+    isRestoring = false;
     return count;
   }
 
   // ---- API 调用 ----
 
   function apiCall(action, params) {
-    var url = WEB_APP_URL + '?action=' + action + '&origin=' + encodeURIComponent(window.location.origin);
+    var url = WEB_APP_URL + '?action=' + action;
 
     if (action === 'write') {
-      // ⚠️ 用 text/plain 避免 CORS 预检请求（GAS 不支持 OPTIONS 预检）
       return fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -89,14 +91,16 @@ var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwd6v93YS7ko3Gc-lK7Hi
     }
   }
 
-  // ---- 上传（全量快照 → 云端）----
+  // ---- 上传 ----
 
   function pushToCloud() {
+    if (isRestoring) return Promise.resolve();
+
     var snapshot = getSnapshot();
     var keyCount = Object.keys(snapshot).length;
     if (keyCount === 0) return Promise.resolve();
 
-    log('上传中: 全量快照（' + keyCount + ' 个 key）');
+    log('上传中: ' + keyCount + ' 个 key');
 
     return apiCall('write', {
       key: SYNC_RECORD_KEY,
@@ -104,37 +108,39 @@ var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwd6v93YS7ko3Gc-lK7Hi
       syncedAt: new Date().toISOString(),
       source: window.location.origin
     }).then(function (res) {
-      if (res.success) {
-        log('✅ 已同步云端，' + keyCount + ' 个 key');
-        showSyncStatus('✅ 数据已同步到云端', 'success');
+      if (res && res.success) {
+        log('✅ 已同步 ' + keyCount + ' 个 key');
+        showSyncStatus('✅ 已同步到云端', 'success');
       } else {
-        warn('❌ 同步失败: ' + (res.error || '未知错误'));
-        showSyncStatus('❌ 同步失败，请检查网络', 'error');
+        warn('❌ 同步失败: ' + (res && res.error ? res.error : '未知错误'));
+        showSyncStatus('❌ 同步失败', 'error');
       }
       return res;
     }).catch(function (err) {
       warn('❌ 网络错误: ' + err.message);
-      showSyncStatus('❌ 网络错误: ' + err.message, 'error');
+      showSyncStatus('❌ 网络错误', 'error');
       return null;
     });
   }
 
-  // ---- 下载（云端 → 本地）----
+  // ---- 下载 ----
 
   function pullFromCloud() {
-    log('正在从云端拉取最新数据...');
+    log('从云端拉取数据...');
 
     return apiCall('read').then(function (res) {
       if (!res || res.error) {
         warn('拉取失败: ' + (res && res.error ? res.error : '网络错误'));
+        showSyncStatus('❌ 拉取失败: ' + (res && res.error ? res.error : '网络错误'), 'error');
         return null;
       }
       if (!res.records || res.records.length === 0) {
         log('云端暂无数据');
+        showSyncStatus('ℹ️ 云端暂无数据', 'info');
         return null;
       }
 
-      // 找到我们的快照记录
+      // 找到快照记录
       var snapshotRecord = null;
       for (var i = 0; i < res.records.length; i++) {
         if (res.records[i].key === SYNC_RECORD_KEY) {
@@ -144,107 +150,129 @@ var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwd6v93YS7ko3Gc-lK7Hi
       }
 
       if (!snapshotRecord) {
-        log('云端暂无快照数据');
+        log('云端暂无快照');
+        showSyncStatus('ℹ️ 云端暂无快照数据', 'info');
         return null;
       }
 
       // 解析快照
-      var cloudSnapshot = typeof snapshotRecord.data === 'string'
-        ? JSON.parse(snapshotRecord.data)
-        : snapshotRecord.data;
+      var cloudSnapshot = snapshotRecord.data;
+      if (typeof cloudSnapshot === 'string') {
+        try { cloudSnapshot = JSON.parse(cloudSnapshot); }
+        catch (e) { warn('云端数据解析失败'); return null; }
+      }
 
       if (!cloudSnapshot || typeof cloudSnapshot !== 'object') {
         warn('云端数据格式异常');
         return null;
       }
 
-      // 比较时间戳：云端新还是本地新？
-      var cloudTime = cloudSnapshot.syncedAt || '';
-      var localSnapshot = getSnapshot();
-      var localTime = localSnapshot._sync_timestamp || '';
-
-      // 把云端数据写回 localStorage
+      // 恢复到 localStorage
       var restoredCount = restoreSnapshot(cloudSnapshot);
-      localStorage.setItem('_sync_timestamp', new Date().toISOString());
+      log('✅ 恢复 ' + restoredCount + ' 个 key');
+      return { count: restoredCount, data: cloudSnapshot };
 
-      log('✅ 拉取完成，恢复 ' + restoredCount + ' 个 key');
-
-      // 触发页面刷新
-      dispatchStorageEvent();
-
-      showSyncStatus('✅ 云端数据已加载（' + restoredCount + ' 个字段）', 'success');
-      return cloudSnapshot;
     }).catch(function (err) {
-      warn('拉取失败: ' + err.message);
-      showSyncStatus('❌ 拉取失败: ' + err.message, 'error');
+      warn('❌ 拉取异常: ' + err.message);
+      showSyncStatus('❌ 拉取异常: ' + err.message, 'error');
       return null;
     });
   }
 
-  // ---- 触发页面更新 ----
-
-  function dispatchStorageEvent() {
-    for (var i = 0; i < localStorage.length; i++) {
-      var key = localStorage.key(i);
-      if (!key) continue;
-      try {
-        window.dispatchEvent(new StorageEvent('storage', {
-          key: key,
-          newValue: localStorage.getItem(key),
-          oldValue: null,
-          url: location.href
-        }));
-      } catch (e) {}
-    }
-    try {
-      window.dispatchEvent(new CustomEvent('__sync_data_updated__', {
-        detail: { timestamp: Date.now(), source: 'cloud-pull' }
-      }));
-    } catch (e) {}
-  }
-
-  // ---- 拦截 localStorage.setItem ----
+  // ---- 拦截 localStorage（用于自动上传）----
 
   var originalSetItem = localStorage.setItem.bind(localStorage);
   localStorage.setItem = function (key, value) {
     originalSetItem(key, value);
-
-    // 所有 key 都触发同步（排除同步本身的时间戳防止死循环）
-    if (key !== '_sync_timestamp' && key.indexOf('__sync') !== 0) {
-      if (syncTimer) clearTimeout(syncTimer);
-      syncTimer = setTimeout(pushToCloud, DEBOUNCE_MS);
-    }
+    if (isRestoring) return;
+    if (key === RELOAD_FLAG) return;
+    if (key.indexOf('__sync') === 0) return;
+    if (syncTimer) clearTimeout(syncTimer);
+    syncTimer = setTimeout(pushToCloud, DEBOUNCE_MS);
   };
-
-  // ---- 拦截 localStorage.removeItem ----
 
   var originalRemoveItem = localStorage.removeItem.bind(localStorage);
   localStorage.removeItem = function (key) {
     originalRemoveItem(key);
-    if (key !== '_sync_timestamp' && key.indexOf('__sync') !== 0) {
-      if (syncTimer) clearTimeout(syncTimer);
-      syncTimer = setTimeout(pushToCloud, DEBOUNCE_MS);
-    }
+    if (isRestoring) return;
+    if (key === RELOAD_FLAG) return;
+    if (key.indexOf('__sync') === 0) return;
+    if (syncTimer) clearTimeout(syncTimer);
+    syncTimer = setTimeout(pushToCloud, DEBOUNCE_MS);
   };
 
-  // ---- 初始化 ----
+  // ---- 初始化逻辑 ----
 
   function initSync() {
     if (!WEB_APP_URL || WEB_APP_URL.indexOf('YOUR_WEB_APP_ID') !== -1) {
-      warn('⚠️ 请先配置 WEB_APP_URL！当前为占位值，无法同步。');
+      warn('⚠️ 请先配置 WEB_APP_URL！');
       showConfigHint();
       return;
     }
 
-    log('初始化全量数据同步...');
+    // 检查是否刚从云端拉取过（避免刷新死循环）
+    if (localStorage.getItem(RELOAD_FLAG) === '1') {
+      localStorage.removeItem(RELOAD_FLAG);
+      log('✅ 云端数据已就绪，启动自动同步');
+      showSyncStatus('✅ 云端数据已加载，自动同步已开启', 'success');
+      // 上传一次当前数据（合并本地+云端）
+      setTimeout(pushToCloud, 2000);
+      return;
+    }
 
-    // 先拉云端再推本地（云端数据优先）
-    pullFromCloud().then(function () {
-      pushToCloud();
+    // 首次访问：从云端拉取数据
+    log('首次访问，拉取云端数据...');
+    showLoadingOverlay('正在同步云端数据...');
+
+    pullFromCloud().then(function (result) {
+      if (result && result.count > 0) {
+        // 有云端数据 → 写入 localStorage → 刷新页面让 React 重新读取
+        log('云端数据已恢复，刷新页面...');
+        localStorage.setItem(RELOAD_FLAG, '1');
+        setTimeout(function () { location.reload(); }, 500);
+      } else {
+        // 云端无数据 → 正常启动，等待本地数据上传
+        hideLoadingOverlay();
+        log('云端无数据，等待本地数据上传');
+        showSyncStatus('ℹ️ 云端暂无数据，填写后将自动上传', 'info');
+        setTimeout(pushToCloud, 2000);
+      }
     });
   }
 
-  // ---- UI ----
+  // ---- UI: 加载遮罩 ----
+
+  function showLoadingOverlay(text) {
+    var existing = document.getElementById('_sync_overlay');
+    if (existing) existing.remove();
+
+    var overlay = document.createElement('div');
+    overlay.id = '_sync_overlay';
+    overlay.setAttribute('style', [
+      'position: fixed',
+      'top: 0', 'left: 0', 'right: 0', 'bottom: 0',
+      'z-index: 999999',
+      'background: rgba(255,255,255,0.9)',
+      'display: flex',
+      'align-items: center',
+      'justify-content: center',
+      'font-family: Microsoft YaHei UI, PingFang SC, sans-serif',
+      'font-size: 16px',
+      'color: #333'
+    ].join(';'));
+    overlay.innerHTML = '<div style="text-align:center">' +
+      '<div style="font-size:32px;margin-bottom:12px">⏳</div>' +
+      '<div>' + text + '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+  }
+
+  function hideLoadingOverlay() {
+    var overlay = document.getElementById('_sync_overlay');
+    if (overlay) overlay.remove();
+  }
+
+  // ---- UI: 状态提示 ----
 
   var statusBar = null;
   var statusTimeout = null;
@@ -270,36 +298,26 @@ var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwd6v93YS7ko3Gc-lK7Hi
         type === 'warning' ? '#c68100' : '#1769e0'
       ),
       'box-shadow: 0 4px 12px rgba(0,0,0,0.15)',
-      'cursor: 'pointer',
-      'transition: opacity 0.3s',
-      'max-width: 360px',
-      'opacity: 1'
+      'cursor: pointer',
+      'max-width: 360px'
     ].join(';'));
 
     statusBar.textContent = message;
     statusBar.title = '点击关闭';
     statusBar.onclick = function () {
-      statusBar.style.opacity = '0';
-      statusTimeout = setTimeout(function () { if (statusBar && statusBar.parentNode) statusBar.remove(); }, 300);
+      if (statusBar && statusBar.parentNode) statusBar.remove();
     };
-
     document.body.appendChild(statusBar);
 
     statusTimeout = setTimeout(function () {
-      if (statusBar && statusBar.parentNode) {
-        statusBar.style.opacity = '0';
-        setTimeout(function () { if (statusBar && statusBar.parentNode) statusBar.remove(); }, 300);
-      }
+      if (statusBar && statusBar.parentNode) statusBar.remove();
     }, 5000);
   }
 
   function showConfigHint() {
     var hint = document.createElement('div');
     hint.setAttribute('style', [
-      'position: fixed',
-      'top: 0',
-      'left: 0',
-      'right: 0',
+      'position: fixed', 'top: 0', 'left: 0', 'right: 0',
       'z-index: 99999',
       'padding: 10px 20px',
       'background: #fff6dc',
@@ -309,7 +327,7 @@ var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwd6v93YS7ko3Gc-lK7Hi
       'color: #8a6d00',
       'text-align: center'
     ].join(';'));
-    hint.innerHTML = '<strong>⚠️ 数据同步未配置</strong> — 请打开 sync.js 填入你的 Web App URL。<button onclick="this.parentElement.remove()" style="margin-left:12px;cursor:pointer;background:#c68100;color:#fff;border:none;padding:2px 10px;border-radius:3px;font-size:12px;">知道了</button>';
+    hint.innerHTML = '<strong>⚠️ 数据同步未配置</strong> — 请打开 sync.js 填入 Web App URL';
     document.body.appendChild(hint);
   }
 
@@ -337,11 +355,21 @@ var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwd6v93YS7ko3Gc-lK7Hi
     btn.onclick = function () {
       btn.textContent = '⏳ 同步中...';
       btn.disabled = true;
-      pullFromCloud().then(function () {
-        return pushToCloud();
-      }).then(function () {
-        btn.textContent = '🔄 同步数据';
-        btn.disabled = false;
+      showLoadingOverlay('正在从云端同步数据...');
+
+      pullFromCloud().then(function (result) {
+        if (result && result.count > 0) {
+          // 有新数据 → 刷新页面
+          localStorage.setItem(RELOAD_FLAG, '1');
+          setTimeout(function () { location.reload(); }, 500);
+        } else {
+          // 无新数据 → 只上传本地
+          hideLoadingOverlay();
+          return pushToCloud().then(function () {
+            btn.textContent = '🔄 同步数据';
+            btn.disabled = false;
+          });
+        }
       });
     };
 
@@ -360,13 +388,12 @@ var WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwd6v93YS7ko3Gc-lK7Hi
     addSyncButton();
   }
 
-  // ---- 调试 ----
+  // ---- 调试接口 ----
 
   window.__syncApi = {
     push: pushToCloud,
     pull: pullFromCloud,
     snapshot: getSnapshot,
-    status: function () { return { url: WEB_APP_URL }; },
-    setUrl: function (url) { WEB_APP_URL = url; log('URL 已更新'); }
+    status: function () { return { url: WEB_APP_URL }; }
   };
 })();
