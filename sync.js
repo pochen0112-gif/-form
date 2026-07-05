@@ -3,35 +3,34 @@ const WORKER_URL = "https://aged-wave-21ae.pochen0112.workers.dev/";
 
 /**
  * =========================
- * 网页 → Worker（唯一通道）
+ * 统一发送入口（网页 → Worker）
  * =========================
  */
-
-async function sendToWorker(data) {
+async function sendToWorker(payload) {
   try {
     const res = await fetch(WORKER_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(data)
+      body: JSON.stringify(payload)
     });
 
-    const result = await res.json();
-    console.log("Worker返回：", result);
+    const text = await res.text();
 
-    return result;
+    console.log("✅ Worker返回：", text);
+
+    return text;
   } catch (err) {
-    console.error("发送失败：", err);
+    console.error("❌ 发送失败：", err);
   }
 }
 
 /**
  * =========================
- * 自动监听 localStorage（你的原逻辑）
+ * 自动监听 localStorage（核心同步逻辑）
  * =========================
  */
-
 (function () {
   const originalSetItem = localStorage.setItem;
 
@@ -46,11 +45,11 @@ async function sendToWorker(data) {
         snapshot[k] = localStorage.getItem(k);
       }
 
-      // 👉 只发给 Worker（不再直接调用飞书）
       sendToWorker({
         type: "storage_update",
         data: snapshot,
-        time: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        source: "github-pages"
       });
 
     } catch (e) {
@@ -59,25 +58,21 @@ async function sendToWorker(data) {
   };
 })();
 
-
 /**
  * =========================
- * 手动测试函数（用于调试）
+ * 手动测试函数（用于验证链路）
  * =========================
  */
-
 async function testSend() {
-  const res = await fetch(WORKER_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      test: "hello",
+  console.log("🚀 testSend start");
+
+  const result = await sendToWorker({
+    type: "test",
+    data: {
+      message: "hello",
       time: new Date().toISOString()
-    })
+    }
   });
 
-  const text = await res.text();
-  console.log("Worker返回：", text);
+  console.log("📦 testSend result:", result);
 }
