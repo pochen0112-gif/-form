@@ -297,5 +297,21 @@ Error generating stack: `+r.message+`
 })();
 </script>
 <script src="sync.js"></script>
+<script>
+    // 👇就在这里加函数
+
+    async function testSend() {
+      const res = await fetch("https://aged-wave-21ae.pochen0112.workers.dev/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ test: "hello" })
+      });
+
+      console.log(await res.text());
+    }
+
+  </script>
 </body>
 </html>
