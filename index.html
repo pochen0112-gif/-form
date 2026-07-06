@@ -313,5 +313,56 @@ Error generating stack: `+r.message+`
     }
 
   </script>
+<script>
+const API = "https://aged-wave-21ae.pochen0112.workers.dev/";
+
+async function loadData() {
+  try {
+    const res = await fetch(API, { cache: "no-store" });
+    const json = await res.json();
+
+    console.log("飞书数据返回：", json);
+
+    // ⭐关键修复：兼容不同结构
+    const items =
+      json?.data?.items ||
+      json?.items ||
+      [];
+
+    const list = document.getElementById("list");
+
+    if (!list) {
+      console.error("❌ 找不到 #list，请确认HTML有 <div id='list'></div>");
+      return;
+    }
+
+    list.innerHTML = "";
+
+    items.forEach(item => {
+      const div = document.createElement("div");
+      div.style.border = "1px solid #ddd";
+      div.style.padding = "10px";
+      div.style.margin = "10px 0";
+      div.style.borderRadius = "8px";
+
+      div.innerHTML = `
+        <div><b>数据：</b> ${item.fields?.data || ""}</div>
+        <div><b>时间：</b> ${new Date(item.fields?.time || Date.now()).toLocaleString()}</div>
+      `;
+
+      list.appendChild(div);
+    });
+
+  } catch (err) {
+    console.error("加载失败：", err);
+  }
+}
+
+// 自动加载
+loadData();
+
+// 每5秒刷新一次（保证别人也能看到最新）
+setInterval(loadData, 5000);
+</script>
 </body>
 </html>
