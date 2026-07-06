@@ -302,7 +302,7 @@ const API = "https://aged-wave-21ae.pochen0112.workers.dev/";
 
 /**
  * =========================
- * 测试写入（POST）
+ * 测试发送（POST）
  * =========================
  */
 async function testSend() {
@@ -318,67 +318,13 @@ async function testSend() {
       })
     });
 
-    const data = await res.json();
-    console.log("📤 写入结果：", data);
+    const text = await res.text();
+    console.log("POST结果：", text);
 
   } catch (err) {
-    console.error("❌ testSend失败：", err);
+    console.error("POST失败：", err);
   }
 }
-
-/**
- * =========================
- * 读取并显示数据（GET）
- * =========================
- */
-async function loadData() {
-  try {
-    const res = await fetch(API, { cache: "no-store" });
-    const json = await res.json();
-
-    console.log("📥 读取数据：", json);
-
-    // ⚠️ 兼容你Worker结构
-    const items = json?.data?.items || [];
-
-    const list = document.getElementById("list");
-    if (!list) return;
-
-    list.innerHTML = "";
-
-    if (items.length === 0) {
-      list.innerHTML = "<p>暂无数据</p>";
-      return;
-    }
-
-    items.forEach(item => {
-      const div = document.createElement("div");
-      div.style.border = "1px solid #ddd";
-      div.style.padding = "10px";
-      div.style.margin = "10px 0";
-      div.style.borderRadius = "8px";
-
-      div.innerHTML = `
-        <div><b>数据：</b> ${item.fields?.data || ""}</div>
-        <div><b>时间：</b> ${new Date(item.fields?.time || Date.now()).toLocaleString()}</div>
-      `;
-
-      list.appendChild(div);
-    });
-
-  } catch (err) {
-    console.error("❌ loadData失败：", err);
-  }
-}
-
-/**
- * =========================
- * 自动执行
- * =========================
- */
-loadData();
-setInterval(loadData, 5000);
-
 </script>
 </body>
 </html>
