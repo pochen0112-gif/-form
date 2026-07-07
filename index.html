@@ -296,92 +296,22 @@ Error generating stack: `+r.message+`
   }
 })();
 </script>
-<div id="list"></div>
-<!-- <script src="sync.js?v=999"></script> -->
+<script src="sync.js?v=999"></script>
 <script>
-const API = "https://aged-wave-21ae.pochen0112.workers.dev/";
+    // 👇就在这里加函数
 
-/* =========================
-   发送数据（写入飞书）
-========================= */
-async function testSend() {
-  try {
-    const res = await fetch(API, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        test: "hello",
-        time: Date.now()
-      })
-    });
+    async function testSend() {
+      const res = await fetch("https://aged-wave-21ae.pochen0112.workers.dev/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ test: "hello" })
+      });
 
-    const data = await res.text();
-    console.log("📤 写入结果：", data);
-
-    // 写完立刻刷新
-    loadData();
-
-  } catch (err) {
-    console.error("❌ 写入失败：", err);
-  }
-}
-
-/* =========================
-   读取飞书数据（核心）
-========================= */
-async function loadData() {
-  try {
-    const res = await fetch(API, { cache: "no-store" });
-    const json = await res.json();
-
-    console.log("📥 读取结果：", json);
-
-    const list = document.getElementById("list");
-
-    if (!list) {
-      console.error("❌ #list 不存在，请检查HTML");
-      return;
+      console.log(await res.text());
     }
 
-    list.innerHTML = "";
-
-    const items = json?.data?.items || [];
-
-    if (items.length === 0) {
-      list.innerHTML = "<p>暂无数据</p>";
-      return;
-    }
-
-    items.forEach(item => {
-      const div = document.createElement("div");
-
-      div.style.border = "1px solid #ddd";
-      div.style.margin = "10px 0";
-      div.style.padding = "10px";
-      div.style.borderRadius = "8px";
-      div.style.background = "#fafafa";
-
-      div.innerHTML = `
-        <div><b>数据：</b> ${item.fields?.data || ""}</div>
-        <div><b>时间：</b> ${new Date(item.fields?.time || Date.now()).toLocaleString()}</div>
-      `;
-
-      list.appendChild(div);
-    });
-
-  } catch (err) {
-    console.error("❌ 读取失败：", err);
-  }
-}
-
-/* =========================
-   自动刷新
-========================= */
-loadData();
-setInterval(loadData, 5000);
-
-</script>
+  </script>
 </body>
 </html>
