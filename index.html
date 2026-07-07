@@ -246,6 +246,48 @@ Error generating stack: `+r.message+`
 </style>
 </head>
   <body>
+
+    <script>
+
+async function initCloud(){
+
+ const res =
+ await fetch(
+ "https://aged-wave-21ae.pochen0112.workers.dev/"
+ );
+
+ const json =
+ await res.json();
+
+
+ const items =
+ json?.data?.items || [];
+
+
+ const last =
+ items[items.length-1];
+
+
+ if(last?.data){
+
+   Object.keys(last.data)
+   .forEach(key=>{
+
+      localStorage.setItem(
+        key,
+        last.data[key]
+      );
+
+   });
+
+ }
+
+}
+
+
+await initCloud();
+
+</script>
     <div id="root"></div>
   
 <script>
@@ -309,26 +351,7 @@ async function loadCloudData(){
   const json = await res.json();
 
   console.log("飞书数据:", json);
-// 同步最新飞书数据到本地
 
-const items = json?.data?.items || [];
-
-const last = items[items.length - 1];
-
-if(last && last.data){
-
-  Object.keys(last.data).forEach(key=>{
-
-    localStorage.setItem(
-      key,
-      last.data[key]
-    );
-
-  });
-
-  console.log("✅ 已同步到本地缓存");
-
-}
 }
 
 loadCloudData();
