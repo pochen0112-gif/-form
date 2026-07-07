@@ -313,5 +313,39 @@ Error generating stack: `+r.message+`
     }
 
   </script>
+
+<script>
+/* ===== 云端同步补丁：飞书实时共享 ===== */
+(function(){
+  const CLOUD_API = "https://aged-wave-21ae.pochen0112.workers.dev/";
+  const oldSetItem = localStorage.setItem.bind(localStorage);
+
+  localStorage.setItem = function(key,value){
+    oldSetItem(key,value);
+
+    // 同步业务数据到 Worker
+    if(
+      key.startsWith("sichuan-")
+    ){
+      fetch(CLOUD_API,{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json"
+        },
+        body:JSON.stringify({
+          key:key,
+          value:value,
+          syncTime:Date.now()
+        })
+      }).catch(err=>console.warn("云同步失败",err));
+    }
+  };
+
+  window.__cloudSync={
+    api:CLOUD_API
+  };
+})();
+</script>
+
 </body>
 </html>
