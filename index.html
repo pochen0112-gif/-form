@@ -298,6 +298,24 @@ Error generating stack: `+r.message+`
 </script>
 <script src="sync.js?v=999"></script>
 <script>
+
+const CLOUD_API =
+"https://aged-wave-21ae.pochen0112.workers.dev/";
+
+async function loadCloudData(){
+
+  const res = await fetch(CLOUD_API);
+
+  const json = await res.json();
+
+  console.log("飞书数据:", json);
+
+}
+
+loadCloudData();
+
+</script>
+<script>
     // 👇就在这里加函数
 
     async function testSend() {
