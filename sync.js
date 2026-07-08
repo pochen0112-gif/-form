@@ -1,29 +1,34 @@
-const WORKER_URL = "https://aged-wave-21ae.pochen0112.workers.dev/";
+const WORKER_URL =
+"https://aged-wave-21ae.pochen0112.workers.dev/";
+
 
 
 /**
- * =========================
+ * =================================
  * 网页 → Worker → 飞书
- * =========================
+ * =================================
  */
-async function sendToWorker(payload) {
 
-  try {
+async function sendToWorker(payload){
 
-    const res = await fetch(WORKER_URL, {
+  try{
 
-      method: "POST",
+    const res =
+    await fetch(
+      WORKER_URL,
+      {
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json"
+        },
+        body:
+        JSON.stringify(payload)
+      }
+    );
 
-      headers: {
-        "Content-Type": "application/json"
-      },
 
-      body: JSON.stringify(payload)
-
-    });
-
-
-    const text = await res.text();
+    const text =
+    await res.text();
 
 
     console.log(
@@ -35,14 +40,12 @@ async function sendToWorker(payload) {
     return text;
 
 
-  } catch (err) {
-
+  }catch(err){
 
     console.error(
-      "❌ Worker发送失败:",
+      "❌ Worker错误:",
       err
     );
-
 
   }
 
@@ -51,82 +54,93 @@ async function sendToWorker(payload) {
 
 
 
+
 /**
- * =========================
+ * =================================
  * 监听 localStorage变化
- * 本地 → 飞书
- * =========================
+ * 本地填写 → 同步飞书
+ * =================================
  */
+
 (function(){
 
 
-  const oldSetItem =
-    localStorage.setItem;
-
-
-  localStorage.setItem =
-  function(key,value){
-
-
-    oldSetItem.apply(
-      this,
-      arguments
-    );
-
-
-    try{
-
-
-      const snapshot = {};
-
-
-      for(
-        let i=0;
-        i<localStorage.length;
-        i++
-      ){
-
-        const k =
-        localStorage.key(i);
-
-
-        snapshot[k] =
-        localStorage.getItem(k);
-
-      }
+const oldSetItem =
+localStorage.setItem;
 
 
 
-      sendToWorker({
-
-        type:"storage_update",
-
-        data:snapshot,
-
-        timestamp:
-        Date.now(),
-
-        source:
-        "github-pages"
+localStorage.setItem =
+function(key,value){
 
 
-      });
+  oldSetItem.apply(
+    this,
+    arguments
+  );
 
 
 
-    }catch(e){
+  try{
 
 
-      console.error(
-        "sync error:",
-        e
-      );
+    const snapshot={};
 
+
+
+    for(
+      let i=0;
+      i<localStorage.length;
+      i++
+    ){
+
+      const k =
+      localStorage.key(i);
+
+
+      snapshot[k]=
+      localStorage.getItem(k);
 
     }
 
 
-  };
+
+    sendToWorker({
+
+      type:
+      "storage_update",
+
+
+      data:
+      snapshot,
+
+
+      syncTime:
+      Date.now(),
+
+
+      source:
+      "github-pages"
+
+
+    });
+
+
+
+  }catch(e){
+
+
+    console.error(
+      "同步异常:",
+      e
+    );
+
+
+  }
+
+
+};
+
 
 
 })();
@@ -136,276 +150,235 @@ async function sendToWorker(payload) {
 
 
 
+
 /**
- * =========================
+ * =================================
  * 飞书 → localStorage
- * =========================
+ * =================================
  */
+
 async function syncFromFeishu(){
 
 
-  try{
+try{
 
 
-    const res =
-    await fetch(WORKER_URL);
-
-
-
-    const json =
-    await res.json();
+const res =
+await fetch(
+  WORKER_URL
+);
 
 
 
-    console.log(
-      "📥 飞书数据:",
-      json
-    );
+const json =
+await res.json();
 
 
 
-    if(
-      !json.ok ||
-      !json.data ||
-      !json.data.items
-    ){
-
-      return;
-
-    }
+console.log(
+"📥 飞书数据:",
+json
+);
 
 
 
+if(
+ !json.ok ||
+ !json.data ||
+ !json.data.items
+){
 
-    const records =
-    json.data.items;
+ return;
 
-
-
-    if(
-      records.length===0
-    ){
-
-      return;
-
-    }
+}
 
 
 
+const records =
+json.data.items;
 
 
-    /**
-     * 找 syncTime 最大的数据
-     */
 
-    let latest =
-    records[0];
+if(
+ records.length===0
+){
 
+ return;
 
-    records.forEach(item=>{
-
-
-      if(
-        (item.data?.syncTime || 0)
-        >
-        (latest.data?.syncTime || 0)
-      ){
-
-        latest=item;
-
-      }
-
-
-    });
+}
 
 
 
 
 
-    const payload =
-    latest.data;
+/**
+ * 遍历全部飞书记录
+ */
+
+let changed=false;
 
 
 
-    console.log(
-      "📥 飞书同步:",
-      payload
-    );
+records.forEach(item=>{
 
 
 
-
-
-    /**
-     * 兼容当前格式:
-     *
-     * {
-     * key:"",
-     * value:""
-     * }
-     */
-
-    if(
-      payload.key &&
-      payload.value !== undefined
-    ){
+ const data =
+ item.data;
 
 
 
-      const oldValue =
-      localStorage.getItem(
-        payload.key
+ if(
+   !data
+ ){
+
+   return;
+
+ }
+
+
+
+ /**
+  * 当前格式
+  *
+  * {
+  * key:"",
+  * value:"",
+  * syncTime:""
+  * }
+  */
+
+
+ if(
+   data.key &&
+   data.value !== undefined
+ ){
+
+
+   const oldValue =
+   localStorage.getItem(
+      data.key
+   );
+
+
+
+   if(
+     oldValue !== data.value
+   ){
+
+
+      localStorage.setItem(
+        data.key,
+        data.value
       );
 
 
+      console.log(
+        "✅ 飞书更新:",
+        data.key
+      );
 
-      if(
-        oldValue !== payload.value
-      ){
 
+      changed=true;
 
-        localStorage.setItem(
-          payload.key,
-          payload.value
-        );
 
+   }
 
 
-        console.log(
-          "✅ 更新localStorage:",
-          payload.key
-        );
 
+ }
 
 
-        /**
-         * 给React重新加载机会
-         */
 
-        setTimeout(()=>{
 
+});
 
-          console.log(
-            "🔄 数据更新，刷新页面"
-          );
 
 
-          window.location.reload();
 
 
+/**
+ * 数据更新
+ * 通知React
+ */
 
-        },800);
+if(changed){
 
 
+ console.log(
+ "🔄 数据发生变化"
+ );
 
-      }
-      else{
 
 
-        console.log(
-          "ℹ️ 数据无变化"
-        );
+ window.dispatchEvent(
+   new Event("storage")
+ );
 
 
-      }
 
+ /**
+  * 首次同步自动刷新
+  */
 
+ if(
+   !sessionStorage.getItem(
+    "feishu_sync_refresh"
+   )
+ ){
 
-      return;
 
-    }
+   sessionStorage.setItem(
+     "feishu_sync_refresh",
+     "1"
+   );
 
 
 
+   setTimeout(()=>{
 
 
+     console.log(
+     "🔄 自动刷新页面"
+     );
 
 
-    /**
-     * 兼容旧格式:
-     *
-     * {
-     * type:"storage_update",
-     * data:{}
-     * }
-     */
+     location.reload();
 
-    if(
-      payload.type==="storage_update" &&
-      payload.data
-    ){
 
+   },800);
 
-      let changed=false;
 
 
+ }
 
-      Object.keys(payload.data)
-      .forEach(key=>{
 
 
-        const oldValue =
-        localStorage.getItem(key);
+}else{
 
 
+ console.log(
+ "ℹ️ 数据无变化"
+ );
 
-        const newValue =
-        payload.data[key];
 
+}
 
 
-        if(
-          oldValue !== newValue
-        ){
 
 
-          localStorage.setItem(
-            key,
-            newValue
-          );
 
+}catch(err){
 
-          changed=true;
 
+console.error(
+"❌ 飞书同步失败:",
+err
+);
 
-        }
 
+}
 
-      });
-
-
-
-
-      if(changed){
-
-
-        setTimeout(()=>{
-
-
-          window.location.reload();
-
-
-        },800);
-
-
-      }
-
-
-
-    }
-
-
-
-  }catch(err){
-
-
-    console.error(
-      "❌ 飞书同步失败:",
-      err
-    );
-
-
-  }
 
 
 }
@@ -416,10 +389,11 @@ async function syncFromFeishu(){
 
 
 
+
 /**
- * =========================
- * 页面打开同步
- * =========================
+ * =================================
+ * 页面启动同步
+ * =================================
  */
 
 syncFromFeishu();
@@ -429,16 +403,18 @@ syncFromFeishu();
 
 
 
+
 /**
- * =========================
- * 每10秒同步
- * =========================
+ * =================================
+ * 定时同步
+ * 每10秒检查一次
+ * =================================
  */
 
 setInterval(()=>{
 
 
-  syncFromFeishu();
+ syncFromFeishu();
 
 
 },10000);
@@ -450,35 +426,38 @@ setInterval(()=>{
 
 
 /**
- * =========================
- * 测试函数
- * =========================
+ * =================================
+ * 测试接口
+ * =================================
  */
 
 async function testSend(){
 
 
-  const result =
-  await sendToWorker({
+const result =
+await sendToWorker({
 
-    type:"test",
+ type:"test",
 
-    data:{
+ data:{
 
-      message:"hello",
+  message:
+  "hello",
 
-      time:
-      new Date().toISOString()
+  time:
+  new Date()
+  .toISOString()
 
-    }
+ }
 
-  });
+});
 
 
-  console.log(
-    "📦 testSend:",
-    result
-  );
+
+console.log(
+"📦测试结果:",
+result
+);
 
 
 }
