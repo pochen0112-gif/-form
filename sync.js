@@ -3,8 +3,7 @@ const WORKER_URL = "https://aged-wave-21ae.pochen0112.workers.dev/";
 
 /**
  * =========================
- * 网页 → Worker
- * 保存数据到飞书
+ * 网页 → Worker → 飞书
  * =========================
  */
 async function sendToWorker(payload) {
@@ -40,7 +39,7 @@ async function sendToWorker(payload) {
 
 
     console.error(
-      "❌ 发送失败:",
+      "❌ Worker发送失败:",
       err
     );
 
@@ -52,26 +51,24 @@ async function sendToWorker(payload) {
 
 
 
-
 /**
  * =========================
- * 自动监听 localStorage变化
+ * 监听 localStorage变化
  * 本地 → 飞书
  * =========================
  */
 (function(){
 
 
-  const originalSetItem =
+  const oldSetItem =
     localStorage.setItem;
-
 
 
   localStorage.setItem =
   function(key,value){
 
 
-    originalSetItem.apply(
+    oldSetItem.apply(
       this,
       arguments
     );
@@ -80,8 +77,7 @@ async function sendToWorker(payload) {
     try{
 
 
-      const snapshot={};
-
+      const snapshot = {};
 
 
       for(
@@ -97,7 +93,6 @@ async function sendToWorker(payload) {
         snapshot[k] =
         localStorage.getItem(k);
 
-
       }
 
 
@@ -109,8 +104,7 @@ async function sendToWorker(payload) {
         data:snapshot,
 
         timestamp:
-        new Date().toISOString(),
-
+        Date.now(),
 
         source:
         "github-pages"
@@ -136,8 +130,6 @@ async function sendToWorker(payload) {
 
 
 })();
-
-
 
 
 
@@ -201,12 +193,32 @@ async function syncFromFeishu(){
 
 
 
-    // 获取最新一条数据
 
-    const latest =
-    records[
-      records.length-1
-    ];
+    /**
+     * 找 syncTime 最大的数据
+     */
+
+    let latest =
+    records[0];
+
+
+    records.forEach(item=>{
+
+
+      if(
+        (item.data?.syncTime || 0)
+        >
+        (latest.data?.syncTime || 0)
+      ){
+
+        latest=item;
+
+      }
+
+
+    });
+
+
 
 
 
@@ -222,10 +234,82 @@ async function syncFromFeishu(){
 
 
 
+
+
+    /**
+     * 兼容当前格式:
+     *
+     * {
+     * key:"",
+     * value:""
+     * }
+     */
+
     if(
-      payload.type !==
-      "storage_update"
+      payload.key &&
+      payload.value !== undefined
     ){
+
+
+
+      const oldValue =
+      localStorage.getItem(
+        payload.key
+      );
+
+
+
+      if(
+        oldValue !== payload.value
+      ){
+
+
+        localStorage.setItem(
+          payload.key,
+          payload.value
+        );
+
+
+
+        console.log(
+          "✅ 更新localStorage:",
+          payload.key
+        );
+
+
+
+        /**
+         * 给React重新加载机会
+         */
+
+        setTimeout(()=>{
+
+
+          console.log(
+            "🔄 数据更新，刷新页面"
+          );
+
+
+          window.location.reload();
+
+
+
+        },800);
+
+
+
+      }
+      else{
+
+
+        console.log(
+          "ℹ️ 数据无变化"
+        );
+
+
+      }
+
+
 
       return;
 
@@ -233,70 +317,78 @@ async function syncFromFeishu(){
 
 
 
-    let needReload=false;
-
-
-
-    Object.keys(payload.data || {})
-    .forEach(key=>{
-
-
-      const oldValue =
-      localStorage.getItem(key);
-
-
-
-      const newValue =
-      payload.data[key];
-
-
-
-      if(
-        oldValue !== newValue
-      ){
-
-        localStorage.setItem(
-          key,
-          newValue
-        );
-
-
-        needReload=true;
-
-
-        console.log(
-          "✅ 更新:",
-          key
-        );
-
-      }
-
-
-
-    });
 
 
 
 
     /**
-     * 如果数据变化
-     * 刷新页面
+     * 兼容旧格式:
+     *
+     * {
+     * type:"storage_update",
+     * data:{}
+     * }
      */
-    if(needReload){
+
+    if(
+      payload.type==="storage_update" &&
+      payload.data
+    ){
 
 
-      console.log(
-        "🔄 数据变化，刷新页面"
-      );
+      let changed=false;
 
 
-      setTimeout(()=>{
+
+      Object.keys(payload.data)
+      .forEach(key=>{
 
 
-        window.location.reload();
+        const oldValue =
+        localStorage.getItem(key);
 
 
-      },500);
+
+        const newValue =
+        payload.data[key];
+
+
+
+        if(
+          oldValue !== newValue
+        ){
+
+
+          localStorage.setItem(
+            key,
+            newValue
+          );
+
+
+          changed=true;
+
+
+        }
+
+
+      });
+
+
+
+
+      if(changed){
+
+
+        setTimeout(()=>{
+
+
+          window.location.reload();
+
+
+        },800);
+
+
+      }
 
 
 
@@ -304,12 +396,12 @@ async function syncFromFeishu(){
 
 
 
-  }catch(e){
+  }catch(err){
 
 
     console.error(
       "❌ 飞书同步失败:",
-      e
+      err
     );
 
 
@@ -324,12 +416,12 @@ async function syncFromFeishu(){
 
 
 
-
 /**
  * =========================
- * 页面启动同步一次
+ * 页面打开同步
  * =========================
  */
+
 syncFromFeishu();
 
 
@@ -339,9 +431,10 @@ syncFromFeishu();
 
 /**
  * =========================
- * 每10秒检查一次
+ * 每10秒同步
  * =========================
  */
+
 setInterval(()=>{
 
 
@@ -356,19 +449,13 @@ setInterval(()=>{
 
 
 
-
 /**
  * =========================
- * 测试发送
+ * 测试函数
  * =========================
  */
+
 async function testSend(){
-
-
-  console.log(
-    "🚀 testSend start"
-  );
-
 
 
   const result =
@@ -385,13 +472,11 @@ async function testSend(){
 
     }
 
-
   });
 
 
-
   console.log(
-    "📦 testSend result:",
+    "📦 testSend:",
     result
   );
 
