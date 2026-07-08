@@ -245,69 +245,76 @@ Error generating stack: `+r.message+`
   @media print { .offline-share-panel { display: none !important; } }
 </style>
 </head>
-  <body>
 
-    <script>
+<body>
+
+<script>
 
 async function initCloud(){
 
- const res =
- await fetch(
- "https://aged-wave-21ae.pochen0112.workers.dev/"
- );
-
- const json =
- await res.json();
+  const res = await fetch(
+    "https://aged-wave-21ae.pochen0112.workers.dev/"
+  );
 
 
- const items =
- json?.data?.items || [];
+  const json = await res.json();
 
 
- const last =
- items[items.length-1];
+  const items =
+    json?.data?.items || [];
 
 
- if(last?.data){
+  const last =
+    items[items.length - 1];
 
-   Object.keys(last.data)
-   .forEach(key=>{
+
+  if(last?.data){
+
+    Object.keys(last.data)
+    .forEach(key=>{
 
       localStorage.setItem(
         key,
         last.data[key]
       );
 
-   });
+    });
 
- }
+
+    console.log(
+      "✅ 云端数据同步完成"
+    );
+
+  }
 
 }
 
 
-<script>
-
+// 页面第一次打开同步一次
 (async function(){
 
- if(!sessionStorage.getItem("cloud_sync")){
+  if(!sessionStorage.getItem("cloud_sync")){
 
-   sessionStorage.setItem(
-     "cloud_sync",
-     "1"
-   );
+    sessionStorage.setItem(
+      "cloud_sync",
+      "1"
+    );
 
-   await initCloud();
 
-   location.reload();
+    await initCloud();
 
- }
+    location.reload();
+
+  }
+
 
 })();
 
-</script>
 
 </script>
-    <div id="root"></div>
+
+
+<div id="root"></div>
   
 <script>
 (function () {
