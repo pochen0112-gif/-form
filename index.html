@@ -285,7 +285,26 @@ async function initCloud(){
 }
 
 
-await initCloud();
+<script>
+
+(async function(){
+
+ if(!sessionStorage.getItem("cloud_sync")){
+
+   sessionStorage.setItem(
+     "cloud_sync",
+     "1"
+   );
+
+   await initCloud();
+
+   location.reload();
+
+ }
+
+})();
+
+</script>
 
 </script>
     <div id="root"></div>
