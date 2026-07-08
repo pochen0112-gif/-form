@@ -76,3 +76,90 @@ async function testSend() {
 
   console.log("📦 testSend result:", result);
 }
+/**
+ * =========================
+ * 飞书 → localStorage 同步
+ * =========================
+ */
+
+async function syncFromFeishu(){
+
+  try{
+
+    const res = await fetch(WORKER_URL);
+
+    const json = await res.json();
+
+
+    if(!json.ok){
+      console.error("飞书读取失败",json);
+      return;
+    }
+
+
+    const records = json.data.items || [];
+
+
+    if(records.length===0){
+      return;
+    }
+
+
+    // 取最新一条
+    const latest =
+      records[records.length-1];
+
+
+    const payload =
+      latest.data;
+
+
+    console.log(
+      "📥 飞书同步:",
+      payload
+    );
+
+
+    if(
+      payload.type==="storage_update" &&
+      payload.data
+    ){
+
+      Object.keys(payload.data).forEach(key=>{
+
+        localStorage.setItem(
+          key,
+          payload.data[key]
+        );
+
+      });
+
+
+      console.log(
+        "✅ 飞书数据已写入本地"
+      );
+
+    }
+
+
+  }catch(e){
+
+    console.error(
+      "飞书同步失败",
+      e
+    );
+
+  }
+
+}
+
+
+// 页面打开自动同步
+syncFromFeishu();
+
+
+// 每10秒同步一次
+setInterval(
+  syncFromFeishu,
+  10000
+);
